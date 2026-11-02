@@ -23,7 +23,17 @@ type Booking = {
   note: string;
 };
 
-const times = ["09:00", "10:00", "11:00", "15:00", "16:00", "17:00"];
+const fallbackTimes = [
+  "08:30",
+  "09:30",
+  "10:30",
+  "11:30",
+  "14:00",
+  "15:00",
+  "16:00",
+  "17:00",
+] as const;
+
 const patientStorageKey = "alexander-zambrano-patient";
 
 function getLocalDateKey(date: Date) {
@@ -32,12 +42,16 @@ function getLocalDateKey(date: Date) {
   }).format(date);
 }
 
+function getLocationConfig(location: LocationName | "") {
+  return clinic.locations.find((item) => item.name === location);
+}
+
 function getNextBusinessDays(location: LocationName | "") {
   const days: Date[] = [];
   const [year, month, day] = getLocalDateKey(new Date()).split("-").map(Number);
   const cursor = new Date(year, month - 1, day, 12);
   const allowedDays: readonly number[] =
-    clinic.locations.find((item) => item.name === location)?.allowedDays ?? [1, 2, 3, 4, 5, 6];
+    getLocationConfig(location)?.allowedDays ?? [1, 2, 3, 4, 5, 6];
   while (days.length < 5) {
     if (allowedDays.includes(cursor.getDay())) {
       days.push(new Date(cursor));
@@ -62,6 +76,7 @@ function getEcuadorTime() {
 }
 
 function isTimeUnavailable(date: string, time: string) {
+  if (!date) return false;
   const now = getEcuadorTime();
   if (date !== now.date) return false;
   const [hour, minute] = time.split(":").map(Number);
@@ -69,10 +84,23 @@ function isTimeUnavailable(date: string, time: string) {
 }
 
 function isDateAllowedForLocation(date: string, location: LocationName | "") {
-  if (!date || !location) return true;
+  if (!date) return true;
+  const dayOfWeek = new Date(`${date}T12:00:00-05:00`).getDay();
+  if (dayOfWeek === 0) return false;
+  if (!location) return true;
   const allowedDays: readonly number[] =
-    clinic.locations.find((item) => item.name === location)?.allowedDays ?? [];
-  return allowedDays.includes(new Date(`${date}T12:00:00-05:00`).getDay());
+    getLocationConfig(location)?.allowedDays ?? [];
+  return allowedDays.includes(dayOfWeek);
+}
+
+function getAllowedDaysMessage(location: LocationName | "") {
+  if (location === "Portoviejo") {
+    return "En la sede Portoviejo la atención es únicamente lunes, miércoles y viernes (08:30 a 17:00).";
+  }
+  if (location === "Canuto") {
+    return "En la sede Canuto la atención es únicamente martes, jueves y sábado (09:00 a 16:00).";
+  }
+  return "Los domingos no hay atención disponible. Seleccione otro día.";
 }
 
 function formatLongDate(value: string) {
@@ -114,6 +142,22 @@ export function BookingSystem() {
   const [, setClock] = useState(Date.now());
   const storageHydrated = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
+
+  const activeLocation = useMemo(
+    () => getLocationConfig(booking.location),
+    [booking.location]
+  );
+
+  const activeTimeSlots: readonly string[] = useMemo(
+    () => activeLocation?.timeSlots ?? fallbackTimes,
+    [activeLocation]
+  );
+
+  const activeTreatmentRecord = useMemo(
+    () => clinic.treatments.find((item) => item.name === booking.treatment),
+    [booking.treatment]
+  );
+
   const businessDays = useMemo(
     () => getNextBusinessDays(booking.location),
     [booking.location]
@@ -123,6 +167,7 @@ export function BookingSystem() {
     () => businessDays.map((d) => getLocalDateKey(d)),
     [businessDays]
   );
+
   const isCustomDateSelected =
     Boolean(booking.date) && !businessDayKeys.includes(booking.date);
   const referenceCode = buildReferenceCode(booking);
@@ -148,7 +193,6 @@ export function BookingSystem() {
     }
   }, []);
 
-  // Oculta la barra flotante inferior apenas el formulario entra en pantalla
   useEffect(() => {
     const formElement = formRef.current;
     if (!formElement || !("IntersectionObserver" in window)) return;
@@ -193,7 +237,7 @@ export function BookingSystem() {
             document
               .querySelector("[data-booking-step='01']")
               ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-          250
+          350
         );
       }
     };
@@ -238,11 +282,26 @@ export function BookingSystem() {
 
   const update = <Key extends keyof Booking>(key: Key, value: Booking[Key]) => {
     setBooking((current) => {
-      if (key === "location" && value && current.date && !isDateAllowedForLocation(current.date, value as LocationName)) {
-        return { ...current, location: value as LocationName, date: "", time: "" };
+      const next = { ...current, [key]: value };
+
+      if (key === "location" && value) {
+        const nextLocConfig = getLocationConfig(value as LocationName);
+        const nextAllowedTimeSlots: readonly string[] =
+          nextLocConfig?.timeSlots ?? fallbackTimes;
+
+        if (
+          current.date &&
+          !isDateAllowedForLocation(current.date, value as LocationName)
+        ) {
+          next.date = "";
+        }
+        if (current.time && !nextAllowedTimeSlots.includes(current.time)) {
+          next.time = "";
+        }
       }
-      return { ...current, [key]: value };
+      return next;
     });
+
     if (key === "location" && value) {
       const params = new URLSearchParams(window.location.search);
       params.set("sede", String(value).toLowerCase());
@@ -251,7 +310,25 @@ export function BookingSystem() {
         "",
         `${window.location.pathname}?${params.toString()}${window.location.hash}`
       );
+      setFieldErrors((current) => ({
+        ...current,
+        location: "",
+        date: "",
+        time: "",
+      }));
+    } else if (key === "date" && value) {
+      if (!isDateAllowedForLocation(String(value), booking.location)) {
+        setFieldErrors((current) => ({
+          ...current,
+          date: getAllowedDaysMessage(booking.location),
+        }));
+      } else {
+        setFieldErrors((current) => ({ ...current, date: "" }));
+      }
+    } else {
+      setFieldErrors((current) => ({ ...current, [key]: "" }));
     }
+
     if (key === "treatment" && value) {
       window.dispatchEvent(
         new CustomEvent<Treatment>("clinic-treatment-selected", {
@@ -260,7 +337,6 @@ export function BookingSystem() {
       );
     }
     setError("");
-    setFieldErrors((current) => ({ ...current, [key]: "" }));
     setSent(false);
     setCopied(false);
   };
@@ -281,7 +357,9 @@ export function BookingSystem() {
 
   const downloadCalendar = () => {
     const start = new Date(`${booking.date}T${booking.time}:00-05:00`);
-    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    const durationMinutes =
+      Number(activeTreatmentRecord?.duration.replace(/\D/g, "")) || 60;
+    const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
     const formatIcsDate = (date: Date) =>
       date
         .toISOString()
@@ -299,8 +377,8 @@ export function BookingSystem() {
       `DTSTART:${formatIcsDate(start)}`,
       `DTEND:${formatIcsDate(end)}`,
       `SUMMARY:${escapeIcs("Consulta odontológica — Od. Alexander Zambrano")}`,
-      `LOCATION:${escapeIcs(booking.location)}`,
-      `DESCRIPTION:${escapeIcs(`${booking.treatment} · ${booking.name.trim()} · REF: ${referenceCode}`)}`,
+      `LOCATION:${escapeIcs(`Sede ${booking.location}, Manabí, Ecuador`)}`,
+      `DESCRIPTION:${escapeIcs(`${booking.treatment} (${activeTreatmentRecord?.duration ?? "60 MIN"}) · Paciente: ${booking.name.trim()} · REF: ${referenceCode}`)}`,
       "END:VEVENT",
       "END:VCALENDAR",
     ].join("\r\n");
@@ -333,13 +411,18 @@ export function BookingSystem() {
     const phone = booking.phone.replace(/\D/g, "");
     const nextErrors: Partial<Record<keyof Booking, string>> = {};
     if (!booking.location) nextErrors.location = "Seleccione una sede.";
-    if (!booking.treatment) nextErrors.treatment = "Seleccione un procedimiento.";
+    if (!booking.treatment)
+      nextErrors.treatment = "Seleccione un procedimiento.";
     if (!booking.date) nextErrors.date = "Seleccione una fecha.";
-    if (booking.date && booking.location && !isDateAllowedForLocation(booking.date, booking.location)) {
-      nextErrors.date = `La sede de ${booking.location} no atiende ese día.`;
+    if (
+      booking.date &&
+      !isDateAllowedForLocation(booking.date, booking.location)
+    ) {
+      nextErrors.date = getAllowedDaysMessage(booking.location);
     }
     if (!booking.time) nextErrors.time = "Seleccione un horario.";
-    if (!booking.name.trim()) nextErrors.name = "Ingrese su nombre y apellido.";
+    if (!booking.name.trim())
+      nextErrors.name = "Ingrese su nombre y apellido.";
     if (!phone) nextErrors.phone = "Ingrese su número celular.";
     if (phone && !/^09\d{8}$/.test(phone)) {
       nextErrors.phone = "Use un celular ecuatoriano de 10 dígitos.";
@@ -384,64 +467,66 @@ export function BookingSystem() {
           className="mt-5 grid w-full gap-3 sm:grid-cols-2"
           aria-describedby={fieldErrors.location ? "location-error" : undefined}
         >
-          {clinic.locations.map((location) => (
-            <button
-              type="button"
-              key={location.name}
-              aria-pressed={booking.location === location.name}
-              onClick={() => update("location", location.name)}
-              className={`group w-full min-w-0 border p-5 text-left transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${
-                booking.location === location.name
-                  ? "border-clinic-dark bg-clinic-dark text-clinic-ivory"
-                  : "border-clinic-ink/20 bg-clinic-card hover:border-clinic-bronze"
-              }`}
-            >
-              <span className="flex items-center justify-between font-display text-2xl">
-                {location.name}
-                {booking.location === location.name && (
-                  <Check
-                    className="h-4 w-4 shrink-0 text-clinic-bronze"
-                    strokeWidth={1.5}
-                  />
-                )}
-              </span>
-              <span
-                className={`mt-3 block text-xs ${
-                  booking.location === location.name
-                    ? "text-clinic-ivory/55"
-                    : "text-clinic-ink/55"
+          {clinic.locations.map((location) => {
+            const isSelected = booking.location === location.name;
+            return (
+              <button
+                type="button"
+                key={location.name}
+                aria-pressed={isSelected}
+                onClick={() => update("location", location.name)}
+                className={`group w-full min-w-0 border p-5 text-left transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${
+                  isSelected
+                    ? "border-clinic-dark bg-clinic-dark text-clinic-ivory"
+                    : "border-clinic-ink/20 bg-clinic-card hover:border-clinic-bronze"
                 }`}
               >
-                {location.label}
-              </span>
-            </button>
-          ))}
-        </div>
-        {booking.location &&
-          (() => {
-            const location = clinic.locations.find(
-              (item) => item.name === booking.location
-            );
-            return location ? (
-              <div className="mt-4 border-l border-clinic-bronze pl-4 text-xs text-clinic-ink/60">
-                <p className="text-[#8A6B2F]">
-                  {location.address} · {location.hours}
-                </p>
-                <a
-                  href={location.mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-clinic-ink transition-colors hover:text-clinic-bronze focus-visible:outline-none focus-visible:border-clinic-bronze"
+                <span className="flex items-center justify-between font-display text-2xl">
+                  {location.name}
+                  {isSelected && (
+                    <Check
+                      className="h-4 w-4 shrink-0 text-clinic-bronze"
+                      strokeWidth={1.5}
+                    />
+                  )}
+                </span>
+                <span
+                  className={`mt-2 block text-xs ${
+                    isSelected ? "text-clinic-ivory/65" : "text-clinic-ink/60"
+                  }`}
                 >
-                  <MapPin
-                    className="h-3 w-3 shrink-0 text-clinic-bronze"
-                    strokeWidth={1.5}
-                  />{" "}
-                  Ver ubicación en Google Maps ↗
-                </a>
-              </div>
-            ) : null;
-          })()}
+                  {location.label}
+                </span>
+                <span
+                  className={`mt-2 block font-mono text-[10px] uppercase tracking-wider ${
+                    isSelected ? "text-clinic-bronze" : "text-[#8A6B2F]"
+                  }`}
+                >
+                  {location.hours}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {activeLocation && (
+          <div className="mt-4 border-l border-clinic-bronze pl-4 text-xs text-clinic-ink/60">
+            <p className="text-[#8A6B2F]">
+              {activeLocation.address} · {activeLocation.hours}
+            </p>
+            <a
+              href={activeLocation.mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-clinic-ink transition-colors hover:text-clinic-bronze focus-visible:outline-none focus-visible:border-clinic-bronze"
+            >
+              <MapPin
+                className="h-3 w-3 shrink-0 text-clinic-bronze"
+                strokeWidth={1.5}
+              />{" "}
+              Ver ubicación en Google Maps ↗
+            </a>
+          </div>
+        )}
         {fieldErrors.location && (
           <p id="location-error" className="mt-3 text-xs text-[#8A6B2F]">
             {fieldErrors.location}
@@ -451,9 +536,16 @@ export function BookingSystem() {
 
       {/* PASO 02: PROCEDIMIENTO */}
       <fieldset data-booking-step="02" className="min-w-0 w-full max-w-full">
-        <legend className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-editorial text-clinic-ink/50">
-          <span className="text-clinic-bronze">02</span> Procedimiento
-        </legend>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <legend className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-editorial text-clinic-ink/50">
+            <span className="text-clinic-bronze">02</span> Procedimiento
+          </legend>
+          {activeTreatmentRecord && (
+            <span className="font-mono text-[9px] uppercase tracking-widest text-[#8A6B2F]">
+              Duración est. · {activeTreatmentRecord.duration}
+            </span>
+          )}
+        </div>
         <div className="relative mt-5 w-full">
           <label htmlFor="treatment" className="sr-only">
             Procedimiento
@@ -482,6 +574,11 @@ export function BookingSystem() {
             strokeWidth={1.5}
           />
         </div>
+        {activeTreatmentRecord && (
+          <p className="mt-2.5 text-xs text-clinic-ink/60">
+            {activeTreatmentRecord.detail}
+          </p>
+        )}
         {fieldErrors.treatment && (
           <p id="treatment-error" className="mt-3 text-xs text-[#8A6B2F]">
             {fieldErrors.treatment}
@@ -491,11 +588,17 @@ export function BookingSystem() {
 
       {/* PASO 03: FECHA Y BLOQUE HORARIO */}
       <fieldset data-booking-step="03" className="min-w-0 w-full max-w-full">
-        <legend className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-editorial text-clinic-ink/50">
-          <span className="text-clinic-bronze">03</span> Fecha y bloque horario
-        </legend>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <legend className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-editorial text-clinic-ink/50">
+            <span className="text-clinic-bronze">03</span> Fecha y bloque horario
+          </legend>
+          {activeLocation && (
+            <span className="font-mono text-[9px] uppercase tracking-widest text-[#8A6B2F]">
+              {activeLocation.hours}
+            </span>
+          )}
+        </div>
 
-        {/* En móvil: grid de 3 columnas que cabe 100% en pantalla sin empujar el layout; en sm+: fila de 6 */}
         <div className="mt-5 grid w-full grid-cols-3 gap-2 sm:grid-cols-6">
           {businessDays.map((day) => {
             const value = getLocalDateKey(day);
@@ -559,8 +662,8 @@ export function BookingSystem() {
           </label>
         </div>
 
-        <div className="mt-5 grid w-full grid-cols-3 gap-2 sm:grid-cols-6">
-          {times.map((time) => {
+        <div className="mt-5 grid w-full grid-cols-3 gap-2 sm:grid-cols-4">
+          {activeTimeSlots.map((time) => {
             const unavailable = isTimeUnavailable(booking.date, time);
             return (
               <button
@@ -621,7 +724,10 @@ export function BookingSystem() {
               placeholder="Su nombre completo"
             />
             {fieldErrors.name && (
-              <span id="name-error" className="block pb-2 text-xs text-[#8A6B2F]">
+              <span
+                id="name-error"
+                className="block pb-2 text-xs text-[#8A6B2F]"
+              >
                 {fieldErrors.name}
               </span>
             )}
@@ -646,7 +752,10 @@ export function BookingSystem() {
               pattern="[0-9]*"
               value={booking.phone}
               onChange={(event) =>
-                update("phone", event.target.value.replace(/\D/g, "").slice(0, 10))
+                update(
+                  "phone",
+                  event.target.value.replace(/\D/g, "").slice(0, 10)
+                )
               }
               className="w-full bg-transparent py-3 text-base focus:outline-none focus-visible:border-clinic-bronze lg:text-sm"
               placeholder="0999999999"
@@ -759,6 +868,28 @@ export function BookingSystem() {
         <span>Solicitar turno vía WhatsApp</span>
         <ArrowRight className="h-4 w-4 shrink-0" />
       </button>
+
+      {/* INDICACIONES DE CONSULTA DESDE CLINIC.TS */}
+      {"guidelines" in clinic && (
+        <div className="border-t border-clinic-ink/15 pt-8">
+          <p className="font-mono text-[10px] uppercase tracking-editorial text-[#8A6B2F]">
+            Indicaciones para su consulta
+          </p>
+          <div className="mt-4 grid gap-4 text-xs leading-relaxed text-clinic-ink/70 sm:grid-cols-3">
+            {clinic.guidelines.map((item) => (
+              <div
+                key={item.title}
+                className="border-l border-clinic-ink/20 pl-3"
+              >
+                <p className="font-mono text-[9px] uppercase tracking-widest text-clinic-ink">
+                  {item.title}
+                </p>
+                <p className="mt-1">{item.text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {showMobileCta && (
         <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between border-t border-[#262624] bg-[#141413]/95 px-4 py-3 lg:hidden">
