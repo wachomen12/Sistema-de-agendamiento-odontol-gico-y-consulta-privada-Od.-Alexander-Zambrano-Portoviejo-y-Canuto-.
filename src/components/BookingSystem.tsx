@@ -32,12 +32,14 @@ function getLocalDateKey(date: Date) {
   }).format(date);
 }
 
-function getNextBusinessDays() {
+function getNextBusinessDays(location: LocationName | "") {
   const days: Date[] = [];
   const [year, month, day] = getLocalDateKey(new Date()).split("-").map(Number);
   const cursor = new Date(year, month - 1, day, 12);
+  const allowedDays: readonly number[] =
+    clinic.locations.find((item) => item.name === location)?.allowedDays ?? [1, 2, 3, 4, 5, 6];
   while (days.length < 5) {
-    if (cursor.getDay() !== 0 && cursor.getDay() !== 6) {
+    if (allowedDays.includes(cursor.getDay())) {
       days.push(new Date(cursor));
     }
     cursor.setDate(cursor.getDate() + 1);
@@ -64,6 +66,13 @@ function isTimeUnavailable(date: string, time: string) {
   if (date !== now.date) return false;
   const [hour, minute] = time.split(":").map(Number);
   return hour * 60 + minute <= now.hour * 60 + now.minute;
+}
+
+function isDateAllowedForLocation(date: string, location: LocationName | "") {
+  if (!date || !location) return true;
+  const allowedDays: readonly number[] =
+    clinic.locations.find((item) => item.name === location)?.allowedDays ?? [];
+  return allowedDays.includes(new Date(`${date}T12:00:00-05:00`).getDay());
 }
 
 function formatLongDate(value: string) {
@@ -105,7 +114,10 @@ export function BookingSystem() {
   const [, setClock] = useState(Date.now());
   const storageHydrated = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
-  const businessDays = useMemo(getNextBusinessDays, []);
+  const businessDays = useMemo(
+    () => getNextBusinessDays(booking.location),
+    [booking.location]
+  );
 
   const businessDayKeys = useMemo(
     () => businessDays.map((d) => getLocalDateKey(d)),
@@ -225,7 +237,12 @@ export function BookingSystem() {
   }, []);
 
   const update = <Key extends keyof Booking>(key: Key, value: Booking[Key]) => {
-    setBooking((current) => ({ ...current, [key]: value }));
+    setBooking((current) => {
+      if (key === "location" && value && current.date && !isDateAllowedForLocation(current.date, value as LocationName)) {
+        return { ...current, location: value as LocationName, date: "", time: "" };
+      }
+      return { ...current, [key]: value };
+    });
     if (key === "location" && value) {
       const params = new URLSearchParams(window.location.search);
       params.set("sede", String(value).toLowerCase());
@@ -318,6 +335,9 @@ export function BookingSystem() {
     if (!booking.location) nextErrors.location = "Seleccione una sede.";
     if (!booking.treatment) nextErrors.treatment = "Seleccione un procedimiento.";
     if (!booking.date) nextErrors.date = "Seleccione una fecha.";
+    if (booking.date && booking.location && !isDateAllowedForLocation(booking.date, booking.location)) {
+      nextErrors.date = `La sede de ${booking.location} no atiende ese día.`;
+    }
     if (!booking.time) nextErrors.time = "Seleccione un horario.";
     if (!booking.name.trim()) nextErrors.name = "Ingrese su nombre y apellido.";
     if (!phone) nextErrors.phone = "Ingrese su número celular.";

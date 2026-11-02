@@ -13,50 +13,77 @@ export function ProcedureList() {
     };
 
     window.addEventListener("clinic-treatment-selected", handleSelection);
-    const treatmentParam = new URLSearchParams(window.location.search).get("tratamiento");
+    const treatmentParam = new URLSearchParams(window.location.search).get(
+      "tratamiento"
+    );
     const treatmentIndex = treatmentParam ? Number(treatmentParam) - 1 : -1;
     if (treatmentIndex >= 0 && treatmentIndex < clinic.treatments.length) {
       setSelected(clinic.treatments[treatmentIndex].name);
     }
-    return () => window.removeEventListener("clinic-treatment-selected", handleSelection);
+    return () =>
+      window.removeEventListener("clinic-treatment-selected", handleSelection);
   }, []);
 
   const selectTreatment = (treatment: Treatment) => {
     setSelected(treatment);
-    window.dispatchEvent(new CustomEvent<Treatment>("clinic-treatment-selected", { detail: treatment }));
-    const scrollToBooking = () => document.getElementById("reserva")?.scrollIntoView({ behavior: "smooth" });
-    if (window.innerWidth < 1024) {
-      window.setTimeout(scrollToBooking, 250);
-    } else {
-      scrollToBooking();
-    }
+    window.dispatchEvent(
+      new CustomEvent<Treatment>("clinic-treatment-selected", {
+        detail: treatment,
+      })
+    );
   };
 
   return (
-    <ol>
-      {clinic.treatments.map((treatment, index) => (
-        <li key={treatment.name}>
-          <button
-            type="button"
-            onClick={() => selectTreatment(treatment.name)}
-            className={`group flex w-full items-center gap-4 border-b border-clinic-line py-3.5 text-left text-sm transition-colors ${
-              selected === treatment.name ? "text-clinic-bronze" : "text-clinic-ivory/70 hover:text-clinic-ivory"
-            }`}
-          >
-            <span className="font-mono text-[10px] text-clinic-bronze">{String(index + 1).padStart(2, "0")}</span>
-            <span className="flex-1">
-              <span className="block">{treatment.name}</span>
-              <span className={`block overflow-hidden transition-all duration-300 ${selected === treatment.name ? "mt-2 max-h-20 opacity-100" : "max-h-0 opacity-0"}`}>
-                <span className="block space-y-1 font-mono text-xs text-clinic-bronze">
-                  <span className="block">{treatment.duration}</span>
-                  <span className="block font-sans text-xs leading-5 text-clinic-ivory/50">{treatment.detail}</span>
+    <ol className="w-full min-w-0">
+      {clinic.treatments.map((treatment, index) => {
+        const isSelected = selected === treatment.name;
+        return (
+          <li key={treatment.name} className="w-full min-w-0">
+            <button
+              type="button"
+              aria-expanded={isSelected}
+              onClick={() => selectTreatment(treatment.name)}
+              className={`group flex w-full min-w-0 items-start justify-between gap-3 border-b border-clinic-line py-3.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze sm:gap-4 ${
+                isSelected
+                  ? "text-clinic-bronze"
+                  : "text-clinic-ivory/75 hover:text-clinic-ivory"
+              }`}
+            >
+              <span className="mt-1 shrink-0 font-mono text-[10px] text-clinic-bronze">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+
+              <span className="min-w-0 flex-1">
+                <span className="block break-words leading-snug">
+                  {treatment.name}
+                </span>
+                <span
+                  className={`block overflow-hidden transition-all duration-300 ${
+                    isSelected ? "mt-2 max-h-36 opacity-100" : "max-h-0 opacity-0"
+                  }`}
+                >
+                  <span className="block space-y-1">
+                    <span className="block font-mono text-[10px] uppercase tracking-widest text-clinic-bronze">
+                      Duración est. · {treatment.duration}
+                    </span>
+                    <span className="block font-sans text-xs leading-relaxed text-clinic-ivory/55">
+                      {treatment.detail}
+                    </span>
+                  </span>
                 </span>
               </span>
-            </span>
-            <ArrowUpRight className={`h-3.5 w-3.5 transition-colors ${selected === treatment.name ? "text-clinic-bronze" : "text-clinic-ivory/20 group-hover:text-clinic-bronze"}`} />
-          </button>
-        </li>
-      ))}
+
+              <ArrowUpRight
+                className={`mt-1 h-3.5 w-3.5 shrink-0 transition-transform duration-300 ${
+                  isSelected
+                    ? "translate-x-0.5 -translate-y-0.5 text-clinic-bronze"
+                    : "text-clinic-ivory/30 group-hover:text-clinic-bronze"
+                }`}
+              />
+            </button>
+          </li>
+        );
+      })}
     </ol>
   );
 }
