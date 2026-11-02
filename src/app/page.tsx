@@ -30,7 +30,7 @@ export default function HomePage() {
       </header>
 
       <div className="grid min-h-screen w-full lg:grid-cols-12">
-        <section className="relative flex min-h-[calc(100vh-73px)] flex-col border-b border-clinic-line bg-clinic-dark px-5 py-16 lg:sticky lg:top-0 lg:col-span-5 lg:h-screen lg:overflow-y-auto lg:[&::-webkit-scrollbar]:hidden lg:[-ms-overflow-style:none] lg:[scrollbar-width:none] lg:border-b-0 lg:border-r lg:px-10 lg:py-12">
+        <section className="relative flex min-h-[calc(100vh-73px)] flex-col border-b border-clinic-line bg-clinic-dark px-5 py-8 lg:sticky lg:top-0 lg:col-span-5 lg:h-screen lg:overflow-y-auto lg:[&::-webkit-scrollbar]:hidden lg:[-ms-overflow-style:none] lg:[scrollbar-width:none] lg:border-b-0 lg:border-r lg:px-10 lg:py-12">
           <div className="pointer-events-none absolute right-8 top-12 hidden font-mono text-[10px] text-clinic-bronze/60 lg:block">01 / 07</div>
           <div className="max-w-xl">
             <p className="font-mono text-[10px] uppercase tracking-editorial text-clinic-bronze">Consulta privada · Manabí</p>
@@ -65,7 +65,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section id="reserva" className="scroll-mt-6 bg-clinic-paper px-5 py-12 text-clinic-ink sm:px-8 lg:col-span-7 lg:px-16 lg:py-16">
+        <section id="reserva" className="scroll-mt-6 bg-clinic-paper px-5 py-8 text-clinic-ink sm:px-8 lg:col-span-7 lg:px-16 lg:py-16">
           <div className="mx-auto max-w-2xl">
             <div className="mb-12 flex items-end justify-between border-b border-clinic-ink/15 pb-5">
               <div>

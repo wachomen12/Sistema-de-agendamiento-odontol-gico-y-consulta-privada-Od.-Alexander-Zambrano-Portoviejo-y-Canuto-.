@@ -64,8 +64,10 @@ export function BookingSystem() {
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof Booking, string>>>({});
   const [sent, setSent] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showMobileCta, setShowMobileCta] = useState(true);
   const [, setClock] = useState(Date.now());
   const storageHydrated = useRef(false);
+  const submitButtonRef = useRef<HTMLButtonElement>(null);
   const businessDays = useMemo(getNextBusinessDays, []);
 
   useEffect(() => {
@@ -80,6 +82,14 @@ export function BookingSystem() {
     } finally {
       storageHydrated.current = true;
     }
+  }, []);
+
+  useEffect(() => {
+    const submitButton = submitButtonRef.current;
+    if (!submitButton || !("IntersectionObserver" in window)) return;
+    const observer = new IntersectionObserver(([entry]) => setShowMobileCta(!entry.isIntersecting), { threshold: 0.1 });
+    observer.observe(submitButton);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -101,7 +111,7 @@ export function BookingSystem() {
       params.set("tratamiento", String(treatmentIndex + 1).padStart(2, "0"));
       window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}${window.location.hash}`);
       if (window.matchMedia("(max-width: 1023px)").matches) {
-        window.setTimeout(() => document.querySelector("[data-booking-step='03']")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+        window.setTimeout(() => document.querySelector("[data-booking-step='03']")?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
       }
     };
 
@@ -211,7 +221,7 @@ export function BookingSystem() {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-12">
+    <form id="booking-form" onSubmit={submit} className="space-y-12 pb-24 lg:pb-0">
       <fieldset data-booking-step="01">
         <legend className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-editorial text-clinic-ink/50"><span className="text-clinic-bronze">01</span> Sede de atención</legend>
         <div className="mt-5 grid gap-3 sm:grid-cols-2" aria-describedby={fieldErrors.location ? "location-error" : undefined}>
@@ -240,7 +250,7 @@ export function BookingSystem() {
         <legend className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-editorial text-clinic-ink/50"><span className="text-clinic-bronze">02</span> Procedimiento</legend>
         <div className="relative mt-5">
           <label htmlFor="treatment" className="sr-only">Procedimiento</label>
-          <select id="treatment" aria-invalid={Boolean(fieldErrors.treatment)} aria-describedby={fieldErrors.treatment ? "treatment-error" : undefined} value={booking.treatment} onChange={(event) => update("treatment", event.target.value as Treatment)} className="w-full appearance-none border-b border-clinic-ink/30 bg-transparent px-0 py-4 text-sm text-clinic-ink focus:outline-none focus-visible:border-clinic-bronze">
+          <select id="treatment" aria-invalid={Boolean(fieldErrors.treatment)} aria-describedby={fieldErrors.treatment ? "treatment-error" : undefined} value={booking.treatment} onChange={(event) => update("treatment", event.target.value as Treatment)} className="w-full appearance-none border-b border-clinic-ink/30 bg-transparent px-0 py-4 text-base text-clinic-ink focus:outline-none focus-visible:border-clinic-bronze lg:text-sm">
             <option value="">Seleccione un tratamiento</option>
             {clinic.treatments.map((treatment) => <option key={treatment.name} value={treatment.name}>{treatment.name}</option>)}
           </select>
@@ -251,17 +261,17 @@ export function BookingSystem() {
 
       <fieldset data-booking-step="03">
         <legend className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-editorial text-clinic-ink/50"><span className="text-clinic-bronze">03</span> Fecha y bloque horario</legend>
-        <div className="mt-5 flex gap-2 overflow-x-auto pb-2">
+        <div className="mt-5 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
           {businessDays.map((day) => {
             const value = getLocalDateKey(day);
-            return <button type="button" key={value} aria-pressed={booking.date === value} onClick={() => update("date", value)} className={`min-w-[82px] border px-3 py-3 text-center transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${booking.date === value ? "border-clinic-dark bg-clinic-dark text-clinic-ivory" : "border-clinic-ink/20 bg-clinic-card hover:border-clinic-bronze"}`}><span className="block font-mono text-[9px] uppercase tracking-widest text-clinic-bronze">{new Intl.DateTimeFormat("es-EC", { weekday: "short", timeZone: "America/Guayaquil" }).format(day).replace(".", "")}</span><span className="mt-1 block font-display text-2xl">{new Intl.DateTimeFormat("es-EC", { day: "2-digit", timeZone: "America/Guayaquil" }).format(day)}</span></button>;
+            return <button type="button" key={value} aria-pressed={booking.date === value} onClick={() => update("date", value)} className={`min-h-[64px] min-w-[84px] snap-start border px-3 py-3 text-center transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${booking.date === value ? "border-clinic-dark bg-clinic-dark text-clinic-ivory" : "border-clinic-ink/20 bg-clinic-card hover:border-clinic-bronze"}`}><span className="block font-mono text-[9px] uppercase tracking-widest text-clinic-bronze">{new Intl.DateTimeFormat("es-EC", { weekday: "short", timeZone: "America/Guayaquil" }).format(day).replace(".", "")}</span><span className="mt-1 block font-display text-2xl">{new Intl.DateTimeFormat("es-EC", { day: "2-digit", timeZone: "America/Guayaquil" }).format(day)}</span></button>;
           })}
-          <label htmlFor="custom-date" className="flex min-w-[82px] cursor-pointer flex-col items-center justify-center border border-dashed border-clinic-ink/30 bg-transparent px-3 py-3 text-center hover:border-clinic-bronze"><CalendarDays className="h-4 w-4 text-clinic-bronze" strokeWidth={1.5} /><span className="mt-2 font-mono text-[9px] uppercase tracking-widest">Otra fecha</span><input id="custom-date" type="date" aria-invalid={Boolean(fieldErrors.date)} aria-describedby={fieldErrors.date ? "date-error" : undefined} min={getLocalDateKey(new Date())} value={booking.date} onChange={(event) => update("date", event.target.value)} className="sr-only" /></label>
+          <label htmlFor="custom-date" className="flex min-h-[64px] min-w-[84px] snap-start cursor-pointer flex-col items-center justify-center border border-dashed border-clinic-ink/30 bg-transparent px-3 py-3 text-center hover:border-clinic-bronze"><CalendarDays className="h-4 w-4 text-clinic-bronze" strokeWidth={1.5} /><span className="mt-2 font-mono text-[9px] uppercase tracking-widest">Otra fecha</span><input id="custom-date" type="date" aria-invalid={Boolean(fieldErrors.date)} aria-describedby={fieldErrors.date ? "date-error" : undefined} min={getLocalDateKey(new Date())} value={booking.date} onChange={(event) => update("date", event.target.value)} className="sr-only" /></label>
         </div>
-        <div className="mt-6 grid grid-cols-3 gap-2 sm:grid-cols-6">
+        <div className="mt-6 grid grid-cols-3 gap-2.5 sm:grid-cols-6">
           {times.map((time) => {
             const unavailable = isTimeUnavailable(booking.date, time);
-            return <button type="button" key={time} disabled={unavailable} aria-pressed={booking.time === time} onClick={() => update("time", time)} className={`border py-3 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${unavailable ? "cursor-not-allowed opacity-30 line-through" : booking.time === time ? "border-clinic-dark bg-clinic-dark text-clinic-ivory" : "border-clinic-ink/20 bg-clinic-card hover:border-clinic-bronze"}`}>{time}</button>;
+            return <button type="button" key={time} disabled={unavailable} aria-pressed={booking.time === time} onClick={() => update("time", time)} className={`min-h-[48px] border py-3 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${unavailable ? "cursor-not-allowed opacity-30 line-through" : booking.time === time ? "border-clinic-dark bg-clinic-dark text-clinic-ivory" : "border-clinic-ink/20 bg-clinic-card hover:border-clinic-bronze"}`}>{time}</button>;
           })}
         </div>
         {fieldErrors.date && <p id="date-error" className="mt-3 text-xs text-[#8A6B2F]">{fieldErrors.date}</p>}
@@ -271,9 +281,9 @@ export function BookingSystem() {
       <fieldset data-booking-step="04">
         <legend className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-editorial text-clinic-ink/50"><span className="text-clinic-bronze">04</span> Datos del paciente</legend>
         <div className="mt-5 grid gap-x-6 gap-y-7 sm:grid-cols-2">
-          <label htmlFor="patient-name" className="border-b border-clinic-ink/30"><span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-clinic-ink/50"><UserRound className="h-3 w-3 text-clinic-bronze" /> Nombre y apellido *</span><input id="patient-name" required aria-invalid={Boolean(fieldErrors.name)} aria-describedby={fieldErrors.name ? "name-error" : undefined} value={booking.name} onChange={(event) => update("name", event.target.value)} className="w-full bg-transparent py-3 text-sm focus:outline-none focus-visible:border-clinic-bronze" placeholder="Su nombre completo" />{fieldErrors.name && <span id="name-error" className="block pb-2 text-xs text-[#8A6B2F]">{fieldErrors.name}</span>}</label>
-          <label htmlFor="patient-phone" className="border-b border-clinic-ink/30"><span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-clinic-ink/50"><MessageCircle className="h-3 w-3 text-clinic-bronze" /> Celular *</span><input id="patient-phone" required aria-invalid={Boolean(fieldErrors.phone)} aria-describedby={fieldErrors.phone ? "phone-error" : undefined} inputMode="numeric" pattern="09[0-9]{8}" value={booking.phone} onChange={(event) => update("phone", event.target.value)} className="w-full bg-transparent py-3 text-sm focus:outline-none focus-visible:border-clinic-bronze" placeholder="0999999999" />{fieldErrors.phone && <span id="phone-error" className="block pb-2 text-xs text-[#8A6B2F]">{fieldErrors.phone}</span>}</label>
-          <label htmlFor="patient-note" className="border-b border-clinic-ink/30 sm:col-span-2"><span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-clinic-ink/50"><FileText className="h-3 w-3 text-clinic-bronze" /> Motivo o comentario <span className="normal-case tracking-normal">(opcional)</span></span><textarea id="patient-note" rows={2} value={booking.note} onChange={(event) => update("note", event.target.value)} className="w-full resize-none bg-transparent py-3 text-sm focus:outline-none focus-visible:border-clinic-bronze" placeholder="Cuéntenos brevemente el motivo de su consulta" /></label>
+          <label htmlFor="patient-name" className="border-b border-clinic-ink/30"><span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-clinic-ink/50"><UserRound className="h-3 w-3 text-clinic-bronze" /> Nombre y apellido *</span><input id="patient-name" autoComplete="name" required aria-invalid={Boolean(fieldErrors.name)} aria-describedby={fieldErrors.name ? "name-error" : undefined} value={booking.name} onChange={(event) => update("name", event.target.value)} className="w-full bg-transparent py-3 text-base focus:outline-none focus-visible:border-clinic-bronze lg:text-sm" placeholder="Su nombre completo" />{fieldErrors.name && <span id="name-error" className="block pb-2 text-xs text-[#8A6B2F]">{fieldErrors.name}</span>}</label>
+          <label htmlFor="patient-phone" className="border-b border-clinic-ink/30"><span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-clinic-ink/50"><MessageCircle className="h-3 w-3 text-clinic-bronze" /> Celular *</span><input id="patient-phone" type="tel" required aria-invalid={Boolean(fieldErrors.phone)} aria-describedby={fieldErrors.phone ? "phone-error" : undefined} inputMode="numeric" pattern="[0-9]*" value={booking.phone} onChange={(event) => update("phone", event.target.value)} className="w-full bg-transparent py-3 text-base focus:outline-none focus-visible:border-clinic-bronze lg:text-sm" placeholder="0999999999" />{fieldErrors.phone && <span id="phone-error" className="block pb-2 text-xs text-[#8A6B2F]">{fieldErrors.phone}</span>}</label>
+          <label htmlFor="patient-note" className="border-b border-clinic-ink/30 sm:col-span-2"><span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-clinic-ink/50"><FileText className="h-3 w-3 text-clinic-bronze" /> Motivo o comentario <span className="normal-case tracking-normal">(opcional)</span></span><textarea id="patient-note" rows={2} value={booking.note} onChange={(event) => update("note", event.target.value)} className="w-full resize-none bg-transparent py-3 text-base focus:outline-none focus-visible:border-clinic-bronze lg:text-sm" placeholder="Cuéntenos brevemente el motivo de su consulta" /></label>
         </div>
       </fieldset>
 
@@ -294,7 +304,14 @@ export function BookingSystem() {
           <button type="button" onClick={copySummary} className="text-left text-clinic-ink underline decoration-clinic-bronze underline-offset-4 transition-colors hover:text-clinic-bronze">{copied ? "Resumen copiado" : "Copiar resumen del turno"}</button>
         </div>
       </div>}
-      <button type="submit" className="flex w-full items-center justify-center gap-3 bg-clinic-dark px-6 py-4 text-xs font-semibold uppercase tracking-editorial text-clinic-paper transition-colors duration-300 hover:bg-clinic-bronze hover:text-clinic-dark">Solicitar turno vía WhatsApp <ArrowRight className="h-4 w-4" /></button>
+      <button ref={submitButtonRef} type="submit" className="flex w-full items-center justify-center gap-3 bg-clinic-dark px-6 py-4 text-xs font-semibold uppercase tracking-editorial text-clinic-paper transition-colors duration-300 hover:bg-clinic-bronze hover:text-clinic-dark focus-visible:outline-none focus-visible:border-clinic-bronze">Solicitar turno vía WhatsApp <ArrowRight className="h-4 w-4" /></button>
+      {showMobileCta && <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between border-t border-[#262624] bg-[#141413]/95 px-4 py-3 lg:hidden">
+        <span className="min-w-0 pr-3 font-mono text-[10px] uppercase text-[#C5A059]">
+          <span className="block truncate">{booking.location || "Sede pendiente"}</span>
+          <span className="block truncate text-clinic-ivory/60">{booking.treatment || "Tratamiento pendiente"}</span>
+        </span>
+        <a href="#booking-form" className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-clinic-ivory focus-visible:outline-none focus-visible:border-clinic-bronze">Reservar ahora ↓</a>
+      </div>}
     </form>
   );
 }

@@ -24,7 +24,12 @@ export function ProcedureList() {
   const selectTreatment = (treatment: Treatment) => {
     setSelected(treatment);
     window.dispatchEvent(new CustomEvent<Treatment>("clinic-treatment-selected", { detail: treatment }));
-    document.getElementById("reserva")?.scrollIntoView({ behavior: "smooth" });
+    const scrollToBooking = () => document.getElementById("reserva")?.scrollIntoView({ behavior: "smooth" });
+    if (window.innerWidth < 1024) {
+      window.setTimeout(scrollToBooking, 250);
+    } else {
+      scrollToBooking();
+    }
   };
 
   return (
