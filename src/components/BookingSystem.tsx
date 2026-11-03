@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  CreditCard,
   FileText,
   MapPin,
   MessageCircle,
@@ -19,6 +20,7 @@ type Booking = {
   date: string;
   time: string;
   name: string;
+  cedula: string;
   phone: string;
   note: string;
 };
@@ -95,12 +97,35 @@ function isDateAllowedForLocation(date: string, location: LocationName | "") {
 
 function getAllowedDaysMessage(location: LocationName | "") {
   if (location === "Portoviejo") {
-    return "En la sede Portoviejo la atención es únicamente lunes, miércoles y viernes (08:30 a 17:00).";
+    return "En Portoviejo la atención es únicamente lunes, miércoles y viernes (08:30 a 17:00).";
   }
   if (location === "Canuto") {
-    return "En la sede Canuto la atención es únicamente martes, jueves y sábado (09:00 a 16:00).";
+    return "En Canuto la atención es únicamente martes, jueves y sábado (09:00 a 16:00).";
   }
   return "Los domingos no hay atención disponible. Seleccione otro día.";
+}
+
+/**
+ * Valida cédula ecuatoriana de 10 dígitos (Algoritmo Módulo 10 del Registro Civil)
+ */
+function isValidEcuadorianCedula(value: string) {
+  if (!/^\d{10}$/.test(value)) return false;
+  const province = Number(value.slice(0, 2));
+  if ((province < 1 || province > 24) && province !== 30) return false;
+
+  const digits = value.split("").map(Number);
+  const verifier = digits[9];
+  let sum = 0;
+
+  for (let i = 0; i < 9; i++) {
+    let product = digits[i] * (i % 2 === 0 ? 2 : 1);
+    if (product >= 10) product -= 9;
+    sum += product;
+  }
+
+  const nextTen = Math.ceil(sum / 10) * 10;
+  const calculatedVerifier = nextTen - sum === 10 ? 0 : nextTen - sum;
+  return calculatedVerifier === verifier;
 }
 
 function formatLongDate(value: string) {
@@ -129,6 +154,7 @@ export function BookingSystem() {
     date: "",
     time: "",
     name: "",
+    cedula: "",
     phone: "",
     note: "",
   });
@@ -178,11 +204,13 @@ export function BookingSystem() {
       if (savedPatient) {
         const patient = JSON.parse(savedPatient) as {
           name?: string;
+          cedula?: string;
           phone?: string;
         };
         setBooking((current) => ({
           ...current,
           name: patient.name ?? "",
+          cedula: patient.cedula ?? "",
           phone: patient.phone ?? "",
         }));
       }
@@ -209,12 +237,16 @@ export function BookingSystem() {
     try {
       window.localStorage.setItem(
         patientStorageKey,
-        JSON.stringify({ name: booking.name, phone: booking.phone })
+        JSON.stringify({
+          name: booking.name,
+          cedula: booking.cedula,
+          phone: booking.phone,
+        })
       );
     } catch {
       // Storage may be unavailable in private browsing contexts.
     }
-  }, [booking.name, booking.phone]);
+  }, [booking.name, booking.cedula, booking.phone]);
 
   useEffect(() => {
     const clock = window.setInterval(() => setClock(Date.now()), 60_000);
@@ -341,13 +373,15 @@ export function BookingSystem() {
     setCopied(false);
   };
 
-  const createMessage = (phone: string) =>
+  const createMessage = (phone: string, cedula: string) =>
     [
       "Hola Dr. Alexander Zambrano, le escribo desde su página web para solicitar una cita:",
       `- Sede: ${booking.location}`,
-      `- Motivo: ${booking.treatment}`,
+      `- Procedimiento: ${booking.treatment}`,
       `- Fecha solicitada: ${formatLongDate(booking.date)} a las ${booking.time}`,
-      `- Paciente: ${booking.name.trim()} (${phone})`,
+      `- Paciente: ${booking.name.trim()}`,
+      `- Cédula: ${cedula}`,
+      `- Celular: ${phone}`,
       booking.note.trim() ? `- Comentario: ${booking.note.trim()}` : "",
       `- Ref: ${referenceCode}`,
       "Quedo atento/a a su confirmación de disponibilidad.",
@@ -378,7 +412,7 @@ export function BookingSystem() {
       `DTEND:${formatIcsDate(end)}`,
       `SUMMARY:${escapeIcs("Consulta odontológica — Od. Alexander Zambrano")}`,
       `LOCATION:${escapeIcs(`Sede ${booking.location}, Manabí, Ecuador`)}`,
-      `DESCRIPTION:${escapeIcs(`${booking.treatment} (${activeTreatmentRecord?.duration ?? "60 MIN"}) · Paciente: ${booking.name.trim()} · REF: ${referenceCode}`)}`,
+      `DESCRIPTION:${escapeIcs(`${booking.treatment} (${activeTreatmentRecord?.duration ?? "60 MIN"}) · Paciente: ${booking.name.trim()} (CI: ${booking.cedula}) · REF: ${referenceCode}`)}`,
       "END:VEVENT",
       "END:VCALENDAR",
     ].join("\r\n");
@@ -395,8 +429,9 @@ export function BookingSystem() {
 
   const copySummary = async () => {
     const phone = booking.phone.replace(/\D/g, "");
+    const cedula = booking.cedula.replace(/\D/g, "");
     try {
-      await navigator.clipboard.writeText(createMessage(phone));
+      await navigator.clipboard.writeText(createMessage(phone, cedula));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2500);
     } catch {
@@ -409,7 +444,9 @@ export function BookingSystem() {
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const phone = booking.phone.replace(/\D/g, "");
+    const cedula = booking.cedula.replace(/\D/g, "");
     const nextErrors: Partial<Record<keyof Booking, string>> = {};
+
     if (!booking.location) nextErrors.location = "Seleccione una sede.";
     if (!booking.treatment)
       nextErrors.treatment = "Seleccione un procedimiento.";
@@ -423,9 +460,15 @@ export function BookingSystem() {
     if (!booking.time) nextErrors.time = "Seleccione un horario.";
     if (!booking.name.trim())
       nextErrors.name = "Ingrese su nombre y apellido.";
-    if (!phone) nextErrors.phone = "Ingrese su número celular.";
-    if (phone && !/^09\d{8}$/.test(phone)) {
-      nextErrors.phone = "Use un celular ecuatoriano de 10 dígitos.";
+    if (!cedula) {
+      nextErrors.cedula = "Ingrese su número de cédula.";
+    } else if (!isValidEcuadorianCedula(cedula)) {
+      nextErrors.cedula = "Ingrese una cédula ecuatoriana válida (10 dígitos).";
+    }
+    if (!phone) {
+      nextErrors.phone = "Ingrese su número celular.";
+    } else if (!/^09\d{8}$/.test(phone)) {
+      nextErrors.phone = "Use un celular ecuatoriano de 10 dígitos (09...).";
     }
     if (
       booking.date &&
@@ -439,7 +482,8 @@ export function BookingSystem() {
       setError("Revise los campos marcados antes de solicitar el turno.");
       return;
     }
-    const message = createMessage(phone);
+
+    const message = createMessage(phone, cedula);
     setSent(true);
     const whatsappUrl = `https://wa.me/${clinic.whatsapp}?text=${encodeURIComponent(message)}`;
     const link = document.createElement("a");
@@ -456,7 +500,7 @@ export function BookingSystem() {
       ref={formRef}
       id="booking-form"
       onSubmit={submit}
-      className="w-full max-w-full min-w-0 space-y-12 pb-12 lg:pb-0"
+      className="w-full max-w-full min-w-0 space-y-10 pb-10 sm:space-y-12 lg:pb-0"
     >
       {/* PASO 01: SEDE */}
       <fieldset data-booking-step="01" className="min-w-0 w-full max-w-full">
@@ -464,7 +508,7 @@ export function BookingSystem() {
           <span className="text-clinic-bronze">01</span> Sede de atención
         </legend>
         <div
-          className="mt-5 grid w-full gap-3 sm:grid-cols-2"
+          className="mt-4 grid w-full grid-cols-2 gap-3 sm:mt-5"
           aria-describedby={fieldErrors.location ? "location-error" : undefined}
         >
           {clinic.locations.map((location) => {
@@ -475,13 +519,13 @@ export function BookingSystem() {
                 key={location.name}
                 aria-pressed={isSelected}
                 onClick={() => update("location", location.name)}
-                className={`group w-full min-w-0 border p-5 text-left transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${
+                className={`group w-full min-w-0 border p-4 text-left transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze sm:p-5 ${
                   isSelected
                     ? "border-clinic-dark bg-clinic-dark text-clinic-ivory"
                     : "border-clinic-ink/20 bg-clinic-card hover:border-clinic-bronze"
                 }`}
               >
-                <span className="flex items-center justify-between font-display text-2xl">
+                <span className="flex items-center justify-between font-display text-xl sm:text-2xl">
                   {location.name}
                   {isSelected && (
                     <Check
@@ -491,14 +535,14 @@ export function BookingSystem() {
                   )}
                 </span>
                 <span
-                  className={`mt-2 block text-xs ${
+                  className={`mt-1.5 block text-[11px] sm:text-xs ${
                     isSelected ? "text-clinic-ivory/65" : "text-clinic-ink/60"
                   }`}
                 >
                   {location.label}
                 </span>
                 <span
-                  className={`mt-2 block font-mono text-[10px] uppercase tracking-wider ${
+                  className={`mt-2 block font-mono text-[9px] uppercase tracking-wider sm:text-[10px] ${
                     isSelected ? "text-clinic-bronze" : "text-[#8A6B2F]"
                   }`}
                 >
@@ -509,21 +553,19 @@ export function BookingSystem() {
           })}
         </div>
         {activeLocation && (
-          <div className="mt-4 border-l border-clinic-bronze pl-4 text-xs text-clinic-ink/60">
-            <p className="text-[#8A6B2F]">
-              {activeLocation.address} · {activeLocation.hours}
-            </p>
+          <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-l border-clinic-bronze pl-3.5 text-xs text-clinic-ink/65">
+            <span className="text-[#8A6B2F]">{activeLocation.hours}</span>
             <a
               href={activeLocation.mapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-2 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-clinic-ink transition-colors hover:text-clinic-bronze focus-visible:outline-none focus-visible:border-clinic-bronze"
+              className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-clinic-ink transition-colors hover:text-clinic-bronze"
             >
               <MapPin
                 className="h-3 w-3 shrink-0 text-clinic-bronze"
                 strokeWidth={1.5}
               />{" "}
-              Ver ubicación en Google Maps ↗
+              Ver mapa ↗
             </a>
           </div>
         )}
@@ -546,7 +588,7 @@ export function BookingSystem() {
             </span>
           )}
         </div>
-        <div className="relative mt-5 w-full">
+        <div className="relative mt-4 w-full sm:mt-5">
           <label htmlFor="treatment" className="sr-only">
             Procedimiento
           </label>
@@ -560,7 +602,7 @@ export function BookingSystem() {
             onChange={(event) =>
               update("treatment", event.target.value as Treatment)
             }
-            className="w-full appearance-none truncate border-b border-clinic-ink/30 bg-transparent py-4 pr-7 text-base text-clinic-ink focus:outline-none focus-visible:border-clinic-bronze lg:text-sm"
+            className="w-full appearance-none truncate border-b border-clinic-ink/30 bg-transparent py-3.5 pr-7 text-base text-clinic-ink focus:outline-none focus-visible:border-clinic-bronze lg:text-sm"
           >
             <option value="">Seleccione un tratamiento</option>
             {clinic.treatments.map((treatment) => (
@@ -575,7 +617,7 @@ export function BookingSystem() {
           />
         </div>
         {activeTreatmentRecord && (
-          <p className="mt-2.5 text-xs text-clinic-ink/60">
+          <p className="mt-2 text-xs text-clinic-ink/60">
             {activeTreatmentRecord.detail}
           </p>
         )}
@@ -594,12 +636,12 @@ export function BookingSystem() {
           </legend>
           {activeLocation && (
             <span className="font-mono text-[9px] uppercase tracking-widest text-[#8A6B2F]">
-              {activeLocation.hours}
+              Sede {activeLocation.name}
             </span>
           )}
         </div>
 
-        <div className="mt-5 grid w-full grid-cols-3 gap-2 sm:grid-cols-6">
+        <div className="mt-4 grid w-full grid-cols-3 gap-2 sm:mt-5 sm:grid-cols-6">
           {businessDays.map((day) => {
             const value = getLocalDateKey(day);
             return (
@@ -608,7 +650,7 @@ export function BookingSystem() {
                 key={value}
                 aria-pressed={booking.date === value}
                 onClick={() => update("date", value)}
-                className={`min-h-[64px] w-full min-w-0 border px-2 py-3 text-center transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${
+                className={`min-h-[62px] w-full min-w-0 border px-2 py-2.5 text-center transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${
                   booking.date === value
                     ? "border-clinic-dark bg-clinic-dark text-clinic-ivory"
                     : "border-clinic-ink/20 bg-clinic-card hover:border-clinic-bronze"
@@ -634,7 +676,7 @@ export function BookingSystem() {
 
           <label
             htmlFor="custom-date"
-            className={`flex min-h-[64px] w-full min-w-0 cursor-pointer flex-col items-center justify-center border px-2 py-3 text-center transition-colors ${
+            className={`flex min-h-[62px] w-full min-w-0 cursor-pointer flex-col items-center justify-center border px-2 py-2.5 text-center transition-colors ${
               isCustomDateSelected
                 ? "border-clinic-dark bg-clinic-dark text-clinic-ivory"
                 : "border-dashed border-clinic-ink/30 bg-transparent hover:border-clinic-bronze"
@@ -662,7 +704,7 @@ export function BookingSystem() {
           </label>
         </div>
 
-        <div className="mt-5 grid w-full grid-cols-3 gap-2 sm:grid-cols-4">
+        <div className="mt-4 grid w-full grid-cols-4 gap-2 sm:mt-5">
           {activeTimeSlots.map((time) => {
             const unavailable = isTimeUnavailable(booking.date, time);
             return (
@@ -672,7 +714,7 @@ export function BookingSystem() {
                 disabled={unavailable}
                 aria-pressed={booking.time === time}
                 onClick={() => update("time", time)}
-                className={`min-h-[48px] w-full min-w-0 border py-3 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${
+                className={`min-h-[44px] w-full min-w-0 border py-2.5 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:border-clinic-bronze ${
                   unavailable
                     ? "cursor-not-allowed opacity-30 line-through"
                     : booking.time === time
@@ -697,19 +739,19 @@ export function BookingSystem() {
         )}
       </fieldset>
 
-      {/* PASO 04: DATOS DEL PACIENTE */}
+      {/* PASO 04: DATOS DEL PACIENTE (CON CÉDULA ECUATORIANA) */}
       <fieldset data-booking-step="04" className="min-w-0 w-full max-w-full">
         <legend className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-editorial text-clinic-ink/50">
           <span className="text-clinic-bronze">04</span> Datos del paciente
         </legend>
-        <div className="mt-5 grid w-full gap-x-6 gap-y-7 sm:grid-cols-2">
+        <div className="mt-4 grid w-full gap-x-6 gap-y-6 sm:mt-5 sm:grid-cols-2">
           <label
             htmlFor="patient-name"
-            className="min-w-0 border-b border-clinic-ink/30"
+            className="min-w-0 border-b border-clinic-ink/30 sm:col-span-2"
           >
             <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-clinic-ink/50">
               <UserRound className="h-3 w-3 shrink-0 text-clinic-bronze" />{" "}
-              Nombre y apellido *
+              Nombres y apellidos *
             </span>
             <input
               id="patient-name"
@@ -721,7 +763,7 @@ export function BookingSystem() {
               value={booking.name}
               onChange={(event) => update("name", event.target.value)}
               className="w-full bg-transparent py-3 text-base focus:outline-none focus-visible:border-clinic-bronze lg:text-sm"
-              placeholder="Su nombre completo"
+              placeholder="Ej. María Fernanda Zambrano"
             />
             {fieldErrors.name && (
               <span
@@ -734,12 +776,51 @@ export function BookingSystem() {
           </label>
 
           <label
+            htmlFor="patient-cedula"
+            className="min-w-0 border-b border-clinic-ink/30"
+          >
+            <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-clinic-ink/50">
+              <CreditCard className="h-3 w-3 shrink-0 text-clinic-bronze" />{" "}
+              N.º de Cédula *
+            </span>
+            <input
+              id="patient-cedula"
+              type="text"
+              maxLength={10}
+              required
+              aria-invalid={Boolean(fieldErrors.cedula)}
+              aria-describedby={
+                fieldErrors.cedula ? "cedula-error" : undefined
+              }
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={booking.cedula}
+              onChange={(event) =>
+                update(
+                  "cedula",
+                  event.target.value.replace(/\D/g, "").slice(0, 10)
+                )
+              }
+              className="w-full bg-transparent py-3 font-mono text-base tracking-wider focus:outline-none focus-visible:border-clinic-bronze lg:text-sm"
+              placeholder="1312345678"
+            />
+            {fieldErrors.cedula && (
+              <span
+                id="cedula-error"
+                className="block pb-2 text-xs text-[#8A6B2F]"
+              >
+                {fieldErrors.cedula}
+              </span>
+            )}
+          </label>
+
+          <label
             htmlFor="patient-phone"
             className="min-w-0 border-b border-clinic-ink/30"
           >
             <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-clinic-ink/50">
               <MessageCircle className="h-3 w-3 shrink-0 text-clinic-bronze" />{" "}
-              Celular *
+              Celular (WhatsApp) *
             </span>
             <input
               id="patient-phone"
@@ -757,7 +838,7 @@ export function BookingSystem() {
                   event.target.value.replace(/\D/g, "").slice(0, 10)
                 )
               }
-              className="w-full bg-transparent py-3 text-base focus:outline-none focus-visible:border-clinic-bronze lg:text-sm"
+              className="w-full bg-transparent py-3 font-mono text-base tracking-wider focus:outline-none focus-visible:border-clinic-bronze lg:text-sm"
               placeholder="0999999999"
             />
             {fieldErrors.phone && (
@@ -794,22 +875,28 @@ export function BookingSystem() {
 
       {/* FICHA DE SOLICITUD */}
       <div className="w-full border border-dashed border-clinic-ink/35 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="font-mono text-[10px] uppercase tracking-editorial text-clinic-bronze">
-            Ficha de solicitud
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-clinic-ink/10 pb-3">
+          <p className="font-mono text-[10px] uppercase tracking-editorial text-[#8A6B2F]">
+            Ficha clínica de solicitud
           </p>
-          <p className="font-mono text-[10px] uppercase tracking-widest text-clinic-ink/45">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-clinic-ink/50">
             REF // {referenceCode}
           </p>
         </div>
-        <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-4 text-xs sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 text-xs sm:grid-cols-3">
           <div className="min-w-0">
             <p className="text-clinic-ink/45">Sede</p>
-            <p className="mt-1 truncate">{booking.location || "—"}</p>
+            <p className="mt-1 truncate font-medium">{booking.location || "—"}</p>
           </div>
           <div className="min-w-0">
             <p className="text-clinic-ink/45">Procedimiento</p>
-            <p className="mt-1 truncate">{booking.treatment || "—"}</p>
+            <p className="mt-1 truncate font-medium">
+              {booking.treatment || "—"}
+            </p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-clinic-ink/45">Cédula</p>
+            <p className="mt-1 font-mono">{booking.cedula || "—"}</p>
           </div>
           <div className="min-w-0">
             <p className="text-clinic-ink/45">Fecha</p>
@@ -820,6 +907,10 @@ export function BookingSystem() {
           <div className="min-w-0">
             <p className="text-clinic-ink/45">Hora</p>
             <p className="mt-1 font-mono">{booking.time || "—"}</p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-clinic-ink/45">Paciente</p>
+            <p className="mt-1 truncate">{booking.name || "—"}</p>
           </div>
         </div>
       </div>
@@ -848,7 +939,7 @@ export function BookingSystem() {
               onClick={downloadCalendar}
               className="text-left text-clinic-ink underline decoration-clinic-bronze underline-offset-4 transition-colors hover:text-clinic-bronze"
             >
-              Descargar recordatorio para mi calendario (.ics)
+              Descargar recordatorio (.ics)
             </button>
             <button
               type="button"
@@ -869,9 +960,9 @@ export function BookingSystem() {
         <ArrowRight className="h-4 w-4 shrink-0" />
       </button>
 
-      {/* INDICACIONES DE CONSULTA DESDE CLINIC.TS */}
+      {/* INDICACIONES DE CONSULTA */}
       {"guidelines" in clinic && (
-        <div className="border-t border-clinic-ink/15 pt-8">
+        <div className="border-t border-clinic-ink/15 pt-7">
           <p className="font-mono text-[10px] uppercase tracking-editorial text-[#8A6B2F]">
             Indicaciones para su consulta
           </p>
